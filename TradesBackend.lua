@@ -1,122 +1,349 @@
---/ Module
-local Trades = {};
-local Private = {};
-local ActiveTrades = {};
+local TradingHandler = {};
+TradingHandler.__index = TradingHandler
 
---/ Remote
-local Remote = game.ReplicatedStorage:WaitForChild('Trade');
+TradingHandler.ActiveTrades = {}
+TradingHandler.PlayerHandler = nil
 
---/ Local Functions
-local function IsInTrade(Player: Player)
-	for _, TradeData in next, Trades do
-		if table.find(TradeData.Traders, Player) then
-			return TradeData
+local function GetItemCount(Inventory: {}, Name: string)
+	local Count = 0
+	
+	for _, SwordName in next, Inventory do
+		if (SwordName == Name) then
+			Count += 1
+		end
+	end
+	
+	return Count
+end
+
+function TradingHandler:_LoadNetwork(PlayerHandler: {})
+	self.PlayerHandler = PlayerHandler
+end
+
+function TradingHandler:_AddItem(Player: Player, SwordName: string?)
+	if (not SwordName) or (typeof(SwordName) ~= 'string') then
+		return
+	end
+	
+	if (not self.ActiveTrades[Player]) then
+		return
+	end
+	
+	local Controller
+	
+	if not Player:GetAttribute('IsFake') then
+		Controller = self.PlayerHandler:GetController(Player);
+		if (not Controller) then
+			return
+		end
+	else
+		Controller = {}
+		
+		function Controller:GetData()
+			return {
+				Inventory = {SwordName, SwordName, SwordName}
+			}
+		end
+	end
+	
+	local Inventory = Controller:GetData().Inventory
+	local InventoryCount = GetItemCount(Inventory, SwordName)
+	
+	if (InventoryCount < 1) then
+		return
+	end
+	
+	if (GetItemCount(self.ActiveTrades[Player].Items, SwordName) == InventoryCount) then
+		return
+	end
+	
+	table.insert(self.ActiveTrades[Player].Items, SwordName)
+	
+	return true
+end
+
+function TradingHandler:BeginTrade(Player: Player, PlayerTwo: Player)
+	if self.ActiveTrades[Player] or self.ActiveTrades[PlayerTwo] then
+		return false
+	end
+	
+	self.ActiveTrades[Player] = {
+		Items = {},
+		OtherPlayer = PlayerTwo
+	}
+	
+	self.ActiveTrades[PlayerTwo] = {
+		Items = {},
+		OtherPlayer = Player
+	}
+	
+	return true
+end
+
+function TradingHandler:CommitTrade(Player: Player, PlayerTwo: Player, TradeStatus: string?)
+	if not (self.ActiveTrades[Player] and self.ActiveTrades[PlayerTwo]) then
+		return false
+	end
+	
+	if (self.ActiveTrades[Player].OtherPlayer ~= PlayerTwo) or (self.ActiveTrades[PlayerTwo].OtherPlayer ~= Player) then
+		return false
+	end
+	
+	if (TradeStatus == 'Cancelled') or (TradeStatus == 'Aborted') then
+		self.ActiveTrades[Player] = nil
+		self.ActiveTrades[PlayerTwo] = nil
+	elseif (TradeStatus == 'Accepted') then
+		
+		local Controller
+		local ControllerTwo
+		
+		if not Player:GetAttribute('IsFake') then
+			Controller = self.PlayerHandler:GetController(Player);
+			if (not Controller) then
+				return
+			end
+		else
+			Controller = {}
+			Controller.ActiveTrades = self.ActiveTrades
+
+			function Controller:GetData()
+				return {
+					Inventory = table.clone(self.ActiveTrades[Player].Items)
+				}
+			end
+		end
+		
+		if not PlayerTwo:GetAttribute('IsFake') then
+			ControllerTwo = self.PlayerHandler:GetController(PlayerTwo);
+			if (not ControllerTwo) then
+				return
+			end
+		else
+			ControllerTwo = {}
+			ControllerTwo.ActiveTrades = self.ActiveTrades
+			
+			function ControllerTwo:GetData()
+				return {
+					Inventory = table.clone(self.ActiveTrades[PlayerTwo].Items)
+				}
+			end
+		end
+		
+		if not (Controller and ControllerTwo) then
+			return
+		end
+		
+		for _, SwordName in next, self.ActiveTrades[Player].Items do
+			local Inventory = Controller:GetData().Inventory
+			
+			table.remove(Inventory, table.find(Inventory, SwordName))
+		
+			if not Player:GetAttribute('IsFake') then
+				ControllerTwo:AppendData('Inventory', SwordName)
+			else
+				table.remove(self.ActiveTrades[Player].Items, table.find(self.ActiveTrades[Player].Items, SwordName))
+				table.insert(self.ActiveTrades[PlayerTwo].Items, SwordName)
+			end
+			
+			Inventory = nil
+		end
+		
+		for _, SwordName in next, self.ActiveTrades[PlayerTwo].Items do
+			local Inventory = ControllerTwo:GetData().Inventory
+
+			table.remove(Inventory, table.find(Inventory, SwordName))
+			
+			if not PlayerTwo:GetAttribute('IsFake') then
+				Controller:AppendData('Inventory', SwordName)
+			else
+				table.remove(self.ActiveTrades[PlayerTwo].Items, table.find(self.ActiveTrades[PlayerTwo].Items, SwordName))
+				table.insert(self.ActiveTrades[Player].Items, SwordName)
+			end
+			
+			Inventory = nil
+		end
+		
+		self.ActiveTrades[Player] = nil
+		self.ActiveTrades[PlayerTwo] = nil
+	end
+	
+	return true
+end
+
+require(script.FakeScenario):_set(TradingHandler)
+
+return TradingHandlerlocal TradingHandler = {};
+TradingHandler.__index = TradingHandler
+
+TradingHandler.ActiveTrades = {}
+TradingHandler.PlayerHandler = nil
+
+local function GetItemCount(Inventory: {}, Name: string)
+	local Count = 0
+
+	for _, SwordName in next, Inventory do
+		if (SwordName == Name) then
+			Count += 1
 		end
 	end
 
-	return false
+	return Count
 end
 
---/ Private Functionality
-function Private.OpenTrade(Player: Player, PlayerTwo: Player)
-	table.insert(Trades, {
-		Traders = {Player, PlayerTwo},
-		Items = {
-			[Player] = {},
-			[PlayerTwo] = {}
-		}
-	})
+function TradingHandler:_LoadNetwork(PlayerHandler: {})
+	self.PlayerHandler = PlayerHandler
 end
 
-function Private.AlterData(Player: Player, TradeData: {any})
-	local Profile = shared.GetProfile(Player);
-	if (not Profile) then
+function TradingHandler:_AddItem(Player: Player, SwordName: string?)
+	if (not SwordName) or (typeof(SwordName) ~= 'string') then
 		return
 	end
 
-	local Data = IsInTrade(Player);
-	if (not Data) then
-		return 'You are not in a trade', Color3.fromRGB(255, 0, 0)
+	if (not self.ActiveTrades[Player]) then
+		return
 	end
 
-	for _, Data in next, TradeData do
-		local Passed = false
-		for _, SwordData in next, Profile.Data.Swords do
-			if (SwordData.n == Data.n) and (SwordData.l == Data.l) and (SwordData.k == Data.k) then
-				Passed = true
-				break
+	local Controller
+
+	if not Player:GetAttribute('IsFake') then
+		Controller = self.PlayerHandler:GetController(Player);
+		if (not Controller) then
+			return
+		end
+	else
+		Controller = {}
+
+		function Controller:GetData()
+			return {
+				Inventory = {SwordName, SwordName, SwordName}
+			}
+		end
+	end
+
+	local Inventory = Controller:GetData().Inventory
+	local InventoryCount = GetItemCount(Inventory, SwordName)
+
+	if (InventoryCount < 1) then
+		return
+	end
+
+	if (GetItemCount(self.ActiveTrades[Player].Items, SwordName) == InventoryCount) then
+		return
+	end
+
+	table.insert(self.ActiveTrades[Player].Items, SwordName)
+
+	return true
+end
+
+function TradingHandler:BeginTrade(Player: Player, PlayerTwo: Player)
+	if self.ActiveTrades[Player] or self.ActiveTrades[PlayerTwo] then
+		return false
+	end
+
+	self.ActiveTrades[Player] = {
+		Items = {},
+		OtherPlayer = PlayerTwo
+	}
+
+	self.ActiveTrades[PlayerTwo] = {
+		Items = {},
+		OtherPlayer = Player
+	}
+
+	return true
+end
+
+function TradingHandler:CommitTrade(Player: Player, PlayerTwo: Player, TradeStatus: string?)
+	if not (self.ActiveTrades[Player] and self.ActiveTrades[PlayerTwo]) then
+		return false
+	end
+
+	if (self.ActiveTrades[Player].OtherPlayer ~= PlayerTwo) or (self.ActiveTrades[PlayerTwo].OtherPlayer ~= Player) then
+		return false
+	end
+
+	if (TradeStatus == 'Cancelled') or (TradeStatus == 'Aborted') then
+		self.ActiveTrades[Player] = nil
+		self.ActiveTrades[PlayerTwo] = nil
+	elseif (TradeStatus == 'Accepted') then
+
+		local Controller
+		local ControllerTwo
+
+		if not Player:GetAttribute('IsFake') then
+			Controller = self.PlayerHandler:GetController(Player);
+			if (not Controller) then
+				return
+			end
+		else
+			Controller = {}
+			Controller.ActiveTrades = self.ActiveTrades
+
+			function Controller:GetData()
+				return {
+					Inventory = table.clone(self.ActiveTrades[Player].Items)
+				}
 			end
 		end
 
-		if (not Passed) then
-			return `You do not own {Data.n}`, Color3.fromRGB(255, 0, 0)
-		end
-	end
+		if not PlayerTwo:GetAttribute('IsFake') then
+			ControllerTwo = self.PlayerHandler:GetController(PlayerTwo);
+			if (not ControllerTwo) then
+				return
+			end
+		else
+			ControllerTwo = {}
+			ControllerTwo.ActiveTrades = self.ActiveTrades
 
-	Data.Items[Player] = TradeData
-	
-	for _, OtherPlayer in next, Data.Traders do
-		if (OtherPlayer ~= Player) then
-			Remote:InvokeClient(Player, 'Altered', OtherPlayer, TradeData)
-			break
-		end
-	end
-end
-
-function Private.SendTrade(Player: Player, PlayerTwo: Player)
-	local Start = tick()
-	local Response = nil
-
-	task.spawn(function()
-		Response = Remote:InvokeClient(PlayerTwo, Player)
-	end)
-
-	while task.wait(0.5) do
-		if (Response) then
-			break
+			function ControllerTwo:GetData()
+				return {
+					Inventory = table.clone(self.ActiveTrades[PlayerTwo].Items)
+				}
+			end
 		end
 
-		if (tick() - Start) >= 5 then
-			return 'Player did not respond.'
+		if not (Controller and ControllerTwo) then
+			return
 		end
+
+		for _, SwordName in next, self.ActiveTrades[Player].Items do
+			local Inventory = Controller:GetData().Inventory
+
+			table.remove(Inventory, table.find(Inventory, SwordName))
+
+			if not Player:GetAttribute('IsFake') then
+				ControllerTwo:AppendData('Inventory', SwordName)
+			else
+				table.remove(self.ActiveTrades[Player].Items, table.find(self.ActiveTrades[Player].Items, SwordName))
+				table.insert(self.ActiveTrades[PlayerTwo].Items, SwordName)
+			end
+
+			Inventory = nil
+		end
+
+		for _, SwordName in next, self.ActiveTrades[PlayerTwo].Items do
+			local Inventory = ControllerTwo:GetData().Inventory
+
+			table.remove(Inventory, table.find(Inventory, SwordName))
+
+			if not PlayerTwo:GetAttribute('IsFake') then
+				Controller:AppendData('Inventory', SwordName)
+			else
+				table.remove(self.ActiveTrades[PlayerTwo].Items, table.find(self.ActiveTrades[PlayerTwo].Items, SwordName))
+				table.insert(self.ActiveTrades[Player].Items, SwordName)
+			end
+
+			Inventory = nil
+		end
+
+		self.ActiveTrades[Player] = nil
+		self.ActiveTrades[PlayerTwo] = nil
 	end
 
-	return Response
+	return true
 end
 
---/ Module Functionality
-function Trades.SendTrade(Player: Player, PlayerTwo: Player)
-	if IsInTrade(Player) then
-		return 'You are already in a trade.', Color3.fromRGB(255, 0, 0)
-	end
+require(script.FakeScenario):_set(TradingHandler)
 
-	if IsInTrade(PlayerTwo) then
-		return `{PlayerTwo.Name}'s already in a trade.`, Color3.fromRGB(255, 0, 0)
-	end
-
-	local Response = Private.SendTrade(Player, PlayerTwo);
-	if (not Response) then
-		return `{PlayerTwo.Name} has denied your response`, Color3.fromRGB(255, 0, 0)
-	end
-
-	if (typeof(Response) == 'string') then
-		return Response, Color3.fromRGB(255, 0, 0)
-	end
-
-	Private.OpenTrade(Player, PlayerTwo)
-	return 'Success! Trade Opened!', Color3.fromRGB(0, 255, 0)
-end
-
---/ Events
-Remote.OnServerInvoke = function(Player: Player, Action: string, ...)
-	local Arguments = {...};
-	
-	if (Action == 'Alter') then
-		return Private.AlterData(Player, Arguments[1])
-	elseif (Action == 'Send') then
-		return Trades.SendTrade(Player, Arguments[1])
-	end
-end
-
---/ Return
-return Trades
+return TradingHandler
