@@ -49,6 +49,7 @@ function TradingHandler:_LoadNetwork(PlayerHandler: {}, Networking: {})
 				return
 			end
 			
+			self.Pending[OtherPlayer].Accepted = true
 			self:BeginTrade(OtherPlayer, Player)
 		else
 			if (not self.ActiveTrades[Player]) then
