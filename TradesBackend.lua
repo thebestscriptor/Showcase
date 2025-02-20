@@ -37,7 +37,11 @@ function TradingHandler:_LoadNetwork(PlayerHandler: {}, Networking: {})
 				return
 			end
 			
-			self.Pending[Player] = Player2
+			self.Pending[Player] = {
+				Accepted = false,
+				PendingPlayer = Player2
+			}
+			
 			self.Remote:Fire(Player, 'UpdateSent', Player2)
 			
 			task.delay(45, function()
@@ -50,7 +54,7 @@ function TradingHandler:_LoadNetwork(PlayerHandler: {}, Networking: {})
 				return
 			end
 			
-			if (self.Pending[OtherPlayer] ~= Player) then
+			if (not self.Pending[OtherPlayer]) or (self.Pending[OtherPlayer].PendingPlayer ~= Player) then
 				return
 			end
 			
