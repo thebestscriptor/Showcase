@@ -1,10 +1,15 @@
-local TradingHandler = {};
-TradingHandler.__index = TradingHandler
+local TradingHandler = setmetatable({}, {
+	__index = function(self, key: string)
+		return rawget(self, key)
+	end
+})
 
 TradingHandler.Pending = {}
 TradingHandler.ActiveTrades = {}
 
+TradingHandler.Remote = nil
 TradingHandler.PlayerHandler = nil
+TradingHandler.NetworkHandler = nil
 
 local function GetItemCount(Inventory: {}, Name: string)
 	local Count = 0
@@ -73,6 +78,8 @@ function TradingHandler:_LoadNetwork(PlayerHandler: {}, Networking: {})
 			self:CommitTrade(Player, self.ActiveTrades[Player].OtherPlayer, 'Aborted')
 		end
 	end)
+	
+	require(script.FakeScenario):_set(TradingHandler)
 end
 
 function TradingHandler:_UpdateAndGetStatus(Player: Player, ForceUpdate: boolean)
@@ -152,8 +159,10 @@ function TradingHandler:BeginTrade(Player: Player, PlayerTwo: Player)
 		return false
 	end
 	
-	if not (self.Pending[Player] and self.Pending[Player].Accepted) then
-		return false
+	if not Player:GetAttribute('IsFake') then
+		if not (self.Pending[Player] and self.Pending[Player].Accepted) then
+			return false
+		end
 	end
 	
 	self.Pending[Player] = nil
@@ -171,7 +180,7 @@ function TradingHandler:BeginTrade(Player: Player, PlayerTwo: Player)
 		[Player] = self.ActiveTrades[Player].Items,
 		[self.ActiveTrades[Player].OtherPlayer] = self.ActiveTrades[self.ActiveTrades[Player].OtherPlayer].Items
 	};
-
+	
 	self.Remote:Fire(Player, 'StartTrade', ActiveTrades)
 	self.Remote:Fire(self.ActiveTrades[Player].OtherPlayer, 'StartTrade', ActiveTrades)
 	
@@ -273,7 +282,5 @@ function TradingHandler:CommitTrade(Player: Player, PlayerTwo: Player, TradeStat
 	
 	return true
 end
-
-require(script.FakeScenario):_set(TradingHandler)
 
 return TradingHandler
