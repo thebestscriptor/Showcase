@@ -190,7 +190,7 @@ function TradingHandler:CommitTrade(Player: Player, PlayerTwo: Player, TradeStat
 		self.ActiveTrades[Player] = nil
 		self.ActiveTrades[PlayerTwo] = nil
 		
-		self.Remote:Fire(Player, 'TradeAccepted')
+		self.Remote:Fire(Player, 'TradeEnded')
 		self.Remote:Fire(PlayerTwo, 'TradeEnded')
 	elseif (TradeStatus == 'Accepted') then
 		
